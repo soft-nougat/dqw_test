@@ -26,8 +26,11 @@ def structured_data_app():
     # get session id and create session specific folders
     id = _get_session()
 
+    # remove any temp folders in the root
     dirs = glob.glob("Temp*/")
+    remove_folder_contents(dirs)
 
+    # now create a user specific folder
     temp_folder = 'Temp_'+ id
     
     os.makedirs(temp_folder)
