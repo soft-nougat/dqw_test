@@ -28,7 +28,8 @@ def structured_data_app():
 
     # remove any temp folders in the root
     dirs = glob.glob("DQW_Temp*/")
-    remove_folder_contents(dirs)
+    for dir in dirs:
+        remove_folder_contents(dir)
 
     # now create a user specific folder
     temp_folder = 'DQW_Temp_'+ id
