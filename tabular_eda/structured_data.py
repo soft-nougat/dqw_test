@@ -27,11 +27,11 @@ def structured_data_app():
     id = _get_session()
 
     # remove any temp folders in the root
-    dirs = glob.glob("Temp*/")
+    dirs = glob.glob("DQW_Temp*/")
     remove_folder_contents(dirs)
 
     # now create a user specific folder
-    temp_folder = 'Temp_'+ id
+    temp_folder = 'DQW_Temp_'+ id
     
     os.makedirs(temp_folder)
     os.makedirs(temp_folder+'/preprocessed_data')
