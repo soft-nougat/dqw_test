@@ -14,7 +14,7 @@ from tabular_eda.report_generation import create_pdf_html, create_pdf
 import sweetviz as sv
 import pycaret as pyc
 
-import os
+import os, glob
 from os import path
 import tempfile
 
@@ -26,12 +26,13 @@ def structured_data_app():
     # get session id and create session specific folders
     id = _get_session()
 
-    temp_folder = 'Temp_'+ id
+    dirs = glob.glob("Temp*/")
 
-    if path.exists(temp_folder) == False:
-        os.makedirs(temp_folder)
-        os.makedirs(temp_folder+'/preprocessed_data')
-        os.makedirs(temp_folder+'/synthetic_data')
+    temp_folder = 'Temp_'+ id
+    
+    os.makedirs(temp_folder)
+    os.makedirs(temp_folder+'/preprocessed_data')
+    os.makedirs(temp_folder+'/synthetic_data')
 
     # the very necessary reference expander
     intro_text = """
