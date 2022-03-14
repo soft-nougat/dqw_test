@@ -21,22 +21,7 @@ import tempfile
 from sklearn import set_config
 from sklearn.utils import estimator_html_repr
 
-def structured_data_app():
-
-    # get session id and create session specific folders
-    id = _get_session()
-
-    # remove any temp folders in the root
-    dirs = glob.glob("DQW_Temp*/")
-    for dir in dirs:
-        remove_folder_contents(dir)
-
-    # now create a user specific folder
-    temp_folder = 'DQW_Temp_'+ id
-    
-    os.makedirs(temp_folder)
-    os.makedirs(temp_folder+'/preprocessed_data')
-    os.makedirs(temp_folder+'/synthetic_data')
+def structured_data_app(temp_folder):
 
     # the very necessary reference expander
     intro_text = """
@@ -88,11 +73,31 @@ def structured_data_app():
 
             if step_3 == "EDA":
 
-                analyse_file(temp_folder, st.session_state.data)
+                st.session_state.pr = analyse_file(temp_folder, st.session_state.data)
+                st.session_state.pdf_report = create_pdf_html(temp_folder+"/pandas_prof.html",
+                                            "Step 4",
+                                            "pandas_profiling_dqw.pdf")
+                
+                 # option to download in app
+                display_app_header(main_txt = "Step 4",
+                                    sub_txt= "Download report",
+                                    is_sidebar=True)
 
+                if st.sidebar.download_button(
+                        "⬇️",
+                    data=st.session_state.pdf_report,
+                    file_name="pandas_profiling_dqw.pdf"
+                ):
+                    st.session_state.pr = None
+                    st.session_state.pdf_report = None
+                    
             elif step_3 == "Preprocess and compare":
 
-                st.session_state.data = preprocess(temp_folder, st.session_state.data)
+                 # class column is the label - ask the user to select - not necessary for unsupervised
+                model = st.selectbox('Select the type of model you are preparing data for:',
+                ('None', 'Unsupervised', 'Supervised'))
+
+                st.session_state.sw,  st.session_state.pipeline,  st.session_state.pdf = preprocess(temp_folder, st.session_state.data, model)
 
             else:
 
@@ -100,13 +105,13 @@ def structured_data_app():
            
     if selected_structure == "Compare 2 files":
         
-        sweetviz_comparison(temp_folder, None, None, 0, text = "Step 3")
+        st.session_state.sw = sweetviz_comparison(temp_folder, None, None, 0, text = "Step 3")
     
     if selected_structure == "Synthetic data comparison":
         
         table_evaluator_comparison(temp_folder)
 
-    remove_folder_contents(temp_folder)
+    
 
 def upload_file():
 
@@ -173,6 +178,7 @@ def upload_2_files():
 
         return(original, comparison, 1)
 
+@st.cache(allow_output_mutation=True)
 def sweetviz_comparison(temp_folder, original, comparison, indicator, text, upload = True):
 
     """
@@ -195,9 +201,9 @@ def sweetviz_comparison(temp_folder, original, comparison, indicator, text, uplo
 
         components.html(source_code, height=1200, scrolling=True)
 
-        create_pdf_html(temp_folder+"/SWEETVIZ_REPORT.html",
-                        text,
-                        "sweetviz_dqw.pdf")
+        pdf = create_pdf_html(temp_folder+"/SWEETVIZ_REPORT.html",
+                              text,
+                              "sweetviz_dqw.pdf")
 
         return(sw)
 
@@ -239,7 +245,8 @@ def table_evaluator_comparison(temp_folder):
             zip = generate_zip_structured(temp_folder, original, comparison)
 
             with open(temp_folder+"/synthetic_data/report_files_dqw.zip", "rb") as fp:
-                st.sidebar.download_button(
+                
+                download = st.sidebar.download_button(
                         "⬇️",
                     data=fp,
                     file_name="te_compare_files_dqw.zip",
@@ -267,7 +274,7 @@ def table_evaluator_comparison(temp_folder):
 
                 st.sidebar.warning('Please select a categorical column to analyse.')
 
-        
+@st.cache(allow_output_mutation=True)
 def analyse_file(temp_folder, data):
 
     """
@@ -279,13 +286,10 @@ def analyse_file(temp_folder, data):
     st_profile_report(pr)
     pr.to_file(temp_folder+"/pandas_prof.html")
     
-    create_pdf_html(temp_folder+"/pandas_prof.html",
-                    "Step 4",
-                    "pandas_profiling_dqw.pdf")
-
     return(pr)
 
-def preprocess(temp_folder, data):
+@st.cache(allow_output_mutation=True)
+def preprocess(temp_folder, data, model):
     """
     Automated preprocessing of the structured dataset w/ pycaret
     """
@@ -308,10 +312,6 @@ def preprocess(temp_folder, data):
         <li> - The train and test datasets, which you can compare with each other using Sweetviz.
         """
         sub_text(text)
-    
-    # class column is the label - ask the user to select - not necessary for unsupervised
-    model = st.selectbox('Select the type of model you are preparing data for:',
-    ('None', 'Unsupervised', 'Supervised'))
 
     dataset_columns = data.columns
     options_columns = dataset_columns.insert(0, 'None')
@@ -349,7 +349,9 @@ def preprocess(temp_folder, data):
         with open(temp_folder+'/prep_pipe.html', 'w') as f:  
             f.write(estimator_html_repr(pipeline))
 
-        show_pp_file(temp_folder, data, get_config('X'))
+        sw, pdf = show_pp_file(temp_folder, data, get_config('X'))
+
+        return(pipeline, sw, pdf)
 
     # superivised
     elif model != 'Unsupervised':
@@ -392,49 +394,43 @@ def preprocess(temp_folder, data):
             with open(temp_folder+'/prep_pipe.html', 'w') as f:  
                 f.write(estimator_html_repr(pipeline))
 
-            show_pp_file(temp_folder, data, get_config('X'), get_config('X_train'), get_config('X_test'),
+            sw, pdf = show_pp_file(temp_folder, data, get_config('X'), get_config('X_train'), get_config('X_test'),
             get_config('y'), get_config('y_train'), get_config('y_test'))
+
+            return(pipeline, sw, pdf)
+
+    
  
+@st.cache(allow_output_mutation=True)
 def show_pp_file(temp_folder, data, X, X_train = None, X_test = None, y = None, y_train = None, y_test = None):
     
     st.subheader("Preprocessing done! 🧼")
     st.write("A preview of data and the preprocessing pipeline is below.")
     st.write(X.head())
-    open_html(temp_folder+'/prep_pipe.html', height = 400, width = 300)
+    pdf = open_html(temp_folder+'/prep_pipe.html', height = 400, width = 300)
 
     st.subheader("Compare files 👀")
-
-    if X_train is not None:
-        compare_type = st.selectbox('Select which files to compare:',
-        ('Original & preprocessed', 'Train & test'))
-
-        if compare_type == 'Original & preprocessed':
-
-            sweetviz_comparison(temp_folder, data, X, 1, text = "Step 4", upload = False)
-        
-        else:
-
-            sweetviz_comparison(temp_folder, X_train, X_test, 1, text = "Step 4", upload = False)
-    else:
-
-        st.write("Compare original and preprocessed data")
-        sweetviz_comparison(temp_folder, data, X, 1, text = "Step 4", upload = False)
+    st.write("Compare original and preprocessed data")
+    sw = sweetviz_comparison(temp_folder, data, X, 1, text = "Step 4", upload = False)
 
     # download files
     zip = generate_zip_pp(temp_folder, data, X, X_train, X_test, y, y_train, y_test)
 
-    display_app_header(main_txt = "Step 5",
+    display_app_header(main_txt = "Step 4",
                     sub_txt= "Download preprocessed files",
                     is_sidebar=True)
 
     with open(temp_folder+"/preprocessed_data.zip", "rb") as fp:
         st.sidebar.download_button(
-                "⬇️",
-            data=fp,
-            file_name="preprocessed_data_dqw.zip",
-            mime="application/zip"
-        )
+                    "⬇️",
+                data=fp,
+                file_name="preprocessed_data_dqw.zip",
+                mime="application/zip"
+            )
+    
+    return(sw, pdf)
 
+@st.cache(allow_output_mutation=True)
 def methods_pyc(columns, model):
     """
     Define which imputation method to run on missing values
@@ -546,59 +542,3 @@ def methods_pyc(columns, model):
     mitigation, mitigation_method, normalization, 
     normalization_method, 
     feat_trans, feat_trans_method])
-
-
-def detect_unfairness(X, y, data, label_column):
-    """  
-    Not used currently ---
-
-    Use the fat-forensics package to assess fairness of data
-    Currently, only the accountability example is demoed
-
-    The logic: identify sampling bias for a data set grouping for 
-    a selected feature
-    
-    Returns: a bias estimation
-    """
-    # prepare data for fat forensics, numpy array needed
-    X_fairness = X.to_numpy()
-
-    # extract the labels 
-    class_names = data[label_column].unique 
-    feature_names = X.columns
-
-    selected_feature_name = st.selectbox("Select a feature to measure the sampling bias:",
-    (feature_names))
-
-    selected_feature = np.where(feature_names == selected_feature_name)
-    selected_feature_index = int(selected_feature[0])
-
-    # Define grouping on the selected feature
-    selected_feature_grouping = [2.5, 4.75]
-
-    # Get counts, weights and names of the specified grouping
-    grp_counts, grp_weights, grp_names = fatf_dam.sampling_bias(
-        X_fairness, selected_feature_index, selected_feature_grouping)
-
-    # Print out counts per group
-    print('The counts for groups defined on "{}" feature (index {}) are:'
-        ''.format(selected_feature_name, selected_feature_index))
-    for g_name, g_count in zip(grp_names, grp_counts):
-        is_are = 'is' if g_count == 1 else 'are'
-        print('    * For the population split *{}* there {}: '
-            '{} data points.'.format(g_name, is_are, g_count))
-
-    # Get the disparity grid
-    bias_grid = fatf_dam.sampling_bias_grid_check(grp_counts)
-
-    # Print out disparity per every grouping pair
-    print('\nThe Sampling Bias for *{}* feature (index {}) grouping is:'
-        ''.format(selected_feature_name, selected_feature_index))
-    for grouping_i, grouping_name_i in enumerate(grp_names):
-        j_offset = grouping_i + 1
-        for grouping_j, grouping_name_j in enumerate(grp_names[j_offset:]):
-            grouping_j += j_offset
-            is_not = '' if bias_grid[grouping_i, grouping_j] else ' no'
-
-            print('    * For "{}" and "{}" groupings there >is{}< Sampling Bias.'
-                ''.format(grouping_name_i, grouping_name_j, is_not))
